@@ -223,9 +223,9 @@ const PROJECTS = [
         tag: 'NLP · Classification',
         status: 'Live',
         blurb: 'A DistilBERT ticket router with spam screening in front, sorting tickets into four teams, and turning away the ones that fit none of them.',
-        peek: ['DistilBERT', 'FastAPI', 'Docker', 'AWS'],
+        peek: ['DistilBERT', 'FastAPI', 'Docker', 'HTTPS'],
         source: 'https://github.com/tathavms/lead_routing',
-        demo: 'http://13.48.162.241/lead-routing/',
+        demo: 'https://tatha-projects.duckdns.org/lead-routing/',
         metrics: [
           { v: '78.2%', l: 'test accuracy' },
           { v: '0.78', l: 'weighted F1' },
@@ -248,7 +248,8 @@ const PROJECTS = [
         stack: [
           { label: 'Model', items: ['DistilBERT (fine-tuned)', 'HuggingFace Transformers', 'Datasets', 'Evaluate', 'pretrained spam classifier'] },
           { label: 'Rejection logic', items: ['confidence thresholding', 'predictive-entropy check'] },
-          { label: 'Serving', items: ['FastAPI', 'Uvicorn', 'Nginx', 'Docker'] },
+          { label: 'Serving', items: ['FastAPI', 'Uvicorn', 'Nginx reverse proxy', 'Docker'] },
+          { label: 'TLS', items: ['HTTPS', "Let's Encrypt", 'Certbot auto-renewal', 'custom domain'] },
           { label: 'Infrastructure', items: ['AWS EC2 (free tier)', 'AWS S3', 'IAM roles', 'runtime weight mount'] },
           { label: 'CI/CD', items: ['GitHub Actions', 'GHCR', 'Git LFS'] }
         ],
@@ -279,7 +280,7 @@ const PROJECTS = [
           },
           {
             n: '05', title: 'One free-tier EC2 instance shared with a second app',
-            decision: 'Runs on a single free-tier EC2 box beside the sentiment service, fronted by Nginx, at no monthly cost.',
+            decision: 'Runs on a single free-tier EC2 box beside the sentiment service, fronted by one Nginx reverse proxy that serves both apps under separate paths on one domain over HTTPS, at no monthly cost.',
             why: 'A portfolio service should show the deployment work without costing money. Sharing one box forced me to be careful with memory, and that is the part I learned the most from.',
             tradeoff: 'No redundancy and no horizontal scaling. Both apps share a fate.'
           }
@@ -307,6 +308,7 @@ const PROJECTS = [
         results: [
           '78.2% accuracy and 0.78 weighted F1 across four classes, against a 25% random baseline.',
           'Explicit rejection path: unfitting tickets are turned away instead of misrouted.',
+          'Served over HTTPS behind an Nginx reverse proxy with an auto-renewing Certbot certificate.',
           'Model updates ship by replacing an S3 object, with no image rebuild.',
           'Runs at zero monthly cost beside a second ML app.'
         ],
@@ -336,9 +338,9 @@ const PROJECTS = [
         tag: 'NLP · Sentiment',
         status: 'Live',
         blurb: 'A sentiment web app and JSON API running DistilBERT on a CPU-only 1 GB server, answering in about 13 ms.',
-        peek: ['DistilBERT', 'FastAPI', 'S3', 'VADER'],
+        peek: ['DistilBERT', 'FastAPI', 'HTTPS', 'VADER'],
         source: 'https://github.com/tathavms/tweet_sentiment_analysis',
-        demo: 'http://13.48.162.241/twitter/',
+        demo: 'https://tatha-projects.duckdns.org/twitter/',
         metrics: [
           { v: '90.8%', l: 'validation accuracy' },
           { v: '~13 ms', l: 'warm response' },
@@ -353,7 +355,8 @@ const PROJECTS = [
         stack: [
           { label: 'Model', items: ['DistilBERT (fine-tuned)', 'HuggingFace Transformers', 'CPU-only inference'] },
           { label: 'Labelling', items: ['VADER', 'weak supervision pipeline'] },
-          { label: 'Serving', items: ['FastAPI', 'Uvicorn', 'Nginx', 'Docker', 'JSON API + web form'] },
+          { label: 'Serving', items: ['FastAPI', 'Uvicorn', 'Nginx reverse proxy', 'Docker', 'JSON API + web form'] },
+          { label: 'TLS', items: ['HTTPS', "Let's Encrypt", 'Certbot auto-renewal', 'shared certificate'] },
           { label: 'Infrastructure', items: ['AWS EC2 (1 GB, shared)', 'AWS S3', 'runtime weight mount'] },
           { label: 'CI/CD', items: ['GitHub Actions', 'GHCR'] }
         ],
@@ -388,7 +391,7 @@ const PROJECTS = [
             title: 'A 1 GB box already running another transformer', badge: 'Infrastructure',
             problem: 'The sentiment app had to coexist with the ticket router without either being OOM-killed.',
             cause: 'Transformer weights inside the image plus eager loading in multiple workers exceeds 1 GB quickly.',
-            fix: 'S3-mounted weights, a single model instance per process, conservative worker counts, and Nginx routing both apps on one host. No OOM crashes since.'
+            fix: 'S3-mounted weights, a single model instance per process, conservative worker counts, and one Nginx reverse proxy routing both apps on one host, now terminating TLS for both. No OOM crashes since.'
           },
           {
             title: 'An accuracy number that could mislead', badge: 'Evaluation',
@@ -406,6 +409,7 @@ const PROJECTS = [
         results: [
           '~13 ms warm inference on CPU-only free-tier hardware.',
           'No OOM crashes while sharing a 1 GB instance with a second ML app.',
+          'Served over HTTPS with an auto-renewing Certbot certificate, so no browser security warnings.',
           'Model updates ship without rebuilding the image.',
           'Form and API share one inference path, so they cannot disagree.'
         ],
