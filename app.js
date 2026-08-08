@@ -131,20 +131,6 @@ const PROJECTS = [
           'Sign-in is anonymous per browser, not a real login, so it is scoping rather than hardened auth.',
           'It runs on a single instance with a free-tier Postgres that pauses when unused, so there is no redundancy.',
           'Multi-query plus reranking makes the slow path slower than a plain RAG chain.'
-        ],
-        future: [
-          { label: 'Next up', items: [
-            { title: 'Finish re-parsing the corpus with the newer parser', note: 'Ten of the twenty-two papers are on the better parse, and the rest follow next month as the credit budget refreshes.' },
-            { title: 'Rebuild the evaluation set for the current corpus', note: 'The old set was written for a handful of papers. A larger one is needed to judge the twenty-two-paper corpus and to referee the reranker swap.' }
-          ]},
-          { label: 'Then', items: [
-            { title: 'Put Cloudflare in front', note: 'A trusted edge gives a real client IP for the rate limiter and absorbs traffic floods, which the per-IP limit cannot fully do on its own.' },
-            { title: 'Move to a Postgres that does not pause', note: 'The free tier sleeps after about a week idle. A non-pausing database is what a genuinely always-on instance needs.' }
-          ]},
-          { label: 'Further out', items: [
-            { title: 'Expose the lambeq tools as an MCP server', note: 'Small, shippable and unusual. It would let other agents build diagrams and circuits from a sentence.' },
-            { title: 'Offer a real sign-in as an upgrade from anonymous', note: 'A one-time-code login so a session can be saved across devices, layered on top of the anonymous id.' }
-          ]}
         ]
       },
       {
@@ -678,7 +664,7 @@ function detailHTML(p) {
         <a href="#sec-stack">Stack</a>
         <a href="#sec-decisions">Decisions</a>
         <a href="#sec-problems">Problems</a>
-        <a href="#sec-next">What's Next</a>
+        ${p.future && p.future.length ? `<a href="#sec-next">What's Next</a>` : ''}
       </div>
       <button class="btn" data-theme-toggle>${themeLabel()}</button>
     </div>
@@ -785,12 +771,13 @@ function detailHTML(p) {
     </div>
   </div>
 
+  ${p.future && p.future.length ? `
   <div class="sec" id="sec-next">
     <div class="sechead">
       <div class="kicker ac">// direction &amp; planned updates</div>
       <div class="secnav" style="color:var(--mut)">Highest Leverage First</div>
     </div>
-    ${(p.future || []).map((fg) => `
+    ${p.future.map((fg) => `
     <div class="fut">
       <div class="k">${esc(fg.label)}</div>
       <ul>${fg.items.map((it) => `
@@ -802,7 +789,7 @@ function detailHTML(p) {
           </div>
         </li>`).join('')}</ul>
     </div>`).join('')}
-  </div>
+  </div>` : ''}
 
   <div class="navrow">
     <button class="btn ghost" data-back>← All projects</button>
