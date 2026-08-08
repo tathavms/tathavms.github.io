@@ -5,36 +5,41 @@ const PROJECTS = [
         id: 'qagent',
         name: 'QNLP Research Agent',
         tag: 'RAG · LangGraph',
-        status: 'In progress',
-        blurb: 'A RAG agent that answers questions about quantum-NLP papers with citations, and turns plain English sentences into lambeq string diagrams and IQP quantum circuits.',
-        peek: ['LangGraph', 'Qdrant', 'bge-m3', 'lambeq'],
-        linkNote: 'In progress · not deployed yet',
+        status: 'Live',
+        blurb: 'A RAG agent that answers questions about quantum-NLP papers with citations, and turns plain English sentences into lambeq string diagrams and IQP quantum circuits. Live on Cloud Run behind a free HTTPS domain.',
+        peek: ['LangGraph', 'Qdrant', 'bge-m3', 'Cloud Run'],
+        source: 'https://github.com/tathavms/qnlp-rag',
+        demo: 'https://qnlp-rag.duckdns.org',
+        linkNote: 'Live on Cloud Run. It sleeps when idle to stay free, so the first request after a while takes a little time to warm up.',
         metrics: [
-          { v: '26', l: 'question eval set' },
-          { v: '3', l: 'papers indexed' },
-          { v: '+11 pts', l: 'recall recovered' },
+          { v: '22', l: 'papers indexed' },
+          { v: '264s → 48s', l: 'query latency cut' },
+          { v: '$0', l: 'cost when idle' },
           { v: '4', l: 'agent tools' }
         ],
         summary: [
           'A question-answering agent that reads quantum-NLP research papers and answers questions about them. Every answer carries a citation back to the paper and section it came from, so a claim can always be checked against the source.',
-          'It also does something a general chat model cannot do. Give it any English sentence and it builds the lambeq string diagram and the IQP quantum circuit for that sentence. Both sides sit behind one agent that decides which one to use.'
+          'It also does something a general chat model cannot do. Give it any English sentence and it builds the lambeq string diagram and the IQP quantum circuit for that sentence. Both sides sit behind one agent that decides which one to use.',
+          'It is live. The whole thing runs as one container on Google Cloud Run, with its own frontend, a custom HTTPS domain, and a pipeline that redeploys it on every push.'
         ],
         hasFlow: true,
         flowLabel: 'Request path',
         flow: [
-          { n: '01', step: 'PDF ingestion', note: 'LaTeX blocks and tables are held together as single units before splitting.' },
+          { n: '01', step: 'PDF ingestion', note: 'LlamaParse reads each paper and keeps tables as text, so they survive into the chunks instead of being lost as images.' },
           { n: '02', step: 'Embed → Qdrant', note: 'BAAI/bge-m3 vectors, stored with section metadata for citation.' },
           { n: '03', step: 'LangGraph agent decides', note: 'Retrieval tool, or one of three lambeq tools. The agent picks per question, it is not a fixed chain.' },
           { n: '04', step: 'Multi-query + MMR retrieve', note: 'Several rewrites of the question, diversified results.' },
-          { n: '05', step: 'Cross-encoder rerank', note: 'Reorders candidates before they reach the model.' },
-          { n: '06', step: 'Answer with citations', note: 'Grounded answer plus the paper and section it came from.' }
+          { n: '05', step: 'Cross-encoder rerank', note: 'A bge-reranker-base cross-encoder reorders candidates before they reach the model.' },
+          { n: '06', step: 'Answer with citations', note: 'Grounded answer plus the paper and section it came from, streamed back token by token.' }
         ],
         stack: [
-          { label: 'Retrieval', items: ['BAAI/bge-m3', 'Qdrant', 'MMR search', 'multi-query retrieval', 'cross-encoder reranker'] },
+          { label: 'Retrieval', items: ['BAAI/bge-m3', 'Qdrant', 'MMR search', 'multi-query retrieval', 'bge-reranker-base cross-encoder'] },
           { label: 'Agent orchestration', items: ['LangGraph', 'StateGraph', 'ToolNode', 'LangChain (LCEL)'] },
           { label: 'Quantum NLP tools', items: ['lambeq', 'DisCoPy', 'DisCoCat diagrams', 'IQP ansatz'] },
-          { label: 'Models & serving', items: ['Groq', 'OpenRouter', 'Python', 'FastAPI'] },
-          { label: 'Ingestion', items: ['LaTeX-aware PDF parsing', 'table-preserving chunking', 'section metadata'] }
+          { label: 'Models & serving', items: ['OpenRouter LLM', 'FastAPI', 'vanilla JS frontend', 'Python'] },
+          { label: 'Ingestion', items: ['LlamaParse agentic_plus', 'Cost Optimizer', 'table-preserving chunking', 'section metadata'] },
+          { label: 'Cloud & storage', items: ['Google Cloud Run', 'Docker', 'Cloud Storage', 'Supabase Postgres', 'custom domain over HTTPS'] },
+          { label: 'CI/CD & hardening', items: ['GitHub Actions', 'Workload Identity Federation', 'anonymous per-browser auth', 'per-IP rate limiting'] }
         ],
         decisions: [
           {
@@ -57,9 +62,21 @@ const PROJECTS = [
           },
           {
             n: '04', title: 'Build the eval set before tuning anything',
-            decision: 'I wrote a 26-question test set across 3 papers and ran every change against it.',
+            decision: 'I wrote a small test set across a few papers and ran every change against it.',
             why: 'When I spot checked retrieval changes by hand they always looked like improvements. Twice the test set said the opposite. One of those times the model with the best keyword score was making up citations.',
-            tradeoff: '26 questions is small. It catches regressions, but it cannot prove a small gain is real.'
+            tradeoff: 'The set was small, so it catches regressions but cannot prove a small gain is real. Now that the corpus is 22 papers it needs rebuilding, which is the current gap.'
+          },
+          {
+            n: '05', title: 'Deploy the whole thing as one container on Cloud Run',
+            decision: 'The API and the frontend are served from one FastAPI container on Cloud Run. It scales to zero when idle and sits behind a spend cap.',
+            why: 'One container is one thing to build, deploy and reason about, and serving both from the same place means there is no CORS to manage. Scale-to-zero keeps a portfolio app free when nobody is using it, and the cap is a hard stop so a mistake cannot run up a bill. The models are baked into the image and torch is the CPU-only build, so cold starts do not re-download anything and the image stays small.',
+            tradeoff: 'Scale-to-zero means the first request after an idle spell has to warm the instance, so it is slow. There is no redundancy either.'
+          },
+          {
+            n: '06', title: 'Anonymous per-browser identity instead of a login',
+            decision: 'Each browser gets a random id in local storage that it sends up with every request. Chats are scoped to that id, and each thread checks its owner before it is opened.',
+            why: 'The app first showed everyone the same chat list, which is a real privacy leak. A per-browser id fixes that with no passwords and no personal data to store, and it still leaves a clean path to real sign-in later. It also closed a hole where anyone with a thread link could open someone else\'s chat.',
+            tradeoff: 'This is scoping, not hardened auth. Whoever holds an id can reach that data, so it is fine for a no-login demo but not for anything sensitive.'
           }
         ],
         problems: [
@@ -86,29 +103,47 @@ const PROJECTS = [
             problem: 'Questions were being routed to a tool that could not answer them.',
             cause: 'Two tools had effectively the same description, so the model had nothing to discriminate on.',
             fix: 'Rewrote the tool descriptions so each states what it does and what it is not for. Routing errors went away. The fix was in the tool descriptions, not in the graph.'
+          },
+          {
+            title: 'A query took almost three minutes, and the reranker was nearly all of it', badge: 'Latency',
+            problem: 'A single question took about two minutes and forty seconds to answer, which is too slow to demo.',
+            cause: 'I put timers on each stage instead of guessing. The language model was about five seconds. Almost all the rest was the cross-encoder reranker running on CPU, and its cost grew with the number of candidates.',
+            fix: 'I benchmarked a few reranker models on both speed and whether they kept the top results, then swapped to bge-reranker-base. That cut the query from 264 seconds to 48, about five and a half times faster, without dropping multi-query or shrinking the candidate set. I rejected a faster trick that reranked truncated text because it reordered the wrong chunks.'
+          },
+          {
+            title: 'Diagram images broke after the container restarted', badge: 'Storage',
+            problem: 'Older chats showed a broken-image icon where a generated diagram used to be.',
+            cause: 'Cloud Run wipes the container disk on every restart. The chat history in Postgres still held the path to each diagram, but the image files themselves lived on that disk and were gone. The text survived because the database stores the path, not the picture.',
+            fix: 'Moved the diagrams and the parsed files into Cloud Storage, written when they are created and read back through the same route, so they survive restarts. I later tied each diagram to its chat so an image lives and dies with the conversation it belongs to.'
           }
         ],
         results: [
           'Answers are traceable to paper and section, so claims can be checked rather than trusted.',
-          'The test set caught two failures that manual review had passed: the Unicode bug and the made up citations.',
-          'Agent handles both retrieval questions and sentence-to-circuit requests through one interface.'
+          'Live on Cloud Run behind a free HTTPS custom domain, scaling to zero so it costs nothing when idle, with a spend cap as a hard stop.',
+          'Redeploys on every push with no key file, using GitHub Actions and Workload Identity Federation.',
+          'Query latency went from 264 seconds to 48, about five and a half times faster, without dropping any retrieval feature.',
+          'Diagrams and parsed files live in object storage now, so they survive restarts instead of breaking.',
+          'The test set caught two failures that manual review had passed: the Unicode bug and the made up citations.'
         ],
         limits: [
-          'Not deployed. It runs locally.',
-          'Only 3 papers indexed and 26 test questions, so both numbers are small.',
+          'It sleeps when idle to stay free, so the first request after a while is slow while the instance warms up.',
+          'The corpus is 22 papers, and the evaluation set is being rebuilt for the new parsing, so there is no current headline quality number.',
+          'Sign-in is anonymous per browser, not a real login, so it is scoping rather than hardened auth.',
+          'It runs on a single instance with a free-tier Postgres that pauses when unused, so there is no redundancy.',
           'Multi-query plus reranking makes the slow path slower than a plain RAG chain.'
         ],
         future: [
           { label: 'Next up', items: [
-            { title: 'Deploy behind the same FastAPI + Docker pattern as my other services', note: 'Weights and index outside the image, following what already works on EC2.' },
-            { title: 'Grow the eval set past 100 questions', note: 'Enough to detect small regressions, not just large ones, and to cover multi-hop questions across papers.' }
+            { title: 'Finish re-parsing the corpus with the newer parser', note: 'Ten of the twenty-two papers are on the better parse, and the rest follow next month as the credit budget refreshes.' },
+            { title: 'Rebuild the evaluation set for the current corpus', note: 'The old set was written for a handful of papers. A larger one is needed to judge the twenty-two-paper corpus and to referee the reranker swap.' }
           ]},
           { label: 'Then', items: [
-            { title: 'Index the full QNLP corpus', note: 'Move from 3 papers to the whole reading list, which will stress retrieval far harder than the current set.' },
-            { title: 'Render diagrams and circuits in the UI', note: 'Show the lambeq diagram and IQP circuit as images beside the answer instead of as text output.' }
+            { title: 'Put Cloudflare in front', note: 'A trusted edge gives a real client IP for the rate limiter and absorbs traffic floods, which the per-IP limit cannot fully do on its own.' },
+            { title: 'Move to a Postgres that does not pause', note: 'The free tier sleeps after about a week idle. A non-pausing database is what a genuinely always-on instance needs.' }
           ]},
           { label: 'Further out', items: [
-            { title: 'Faithfulness scoring in the harness', note: 'Score whether each claim is supported by its cited passage, so this kind of failure gets caught automatically next time.' }
+            { title: 'Expose the lambeq tools as an MCP server', note: 'Small, shippable and unusual. It would let other agents build diagrams and circuits from a sentence.' },
+            { title: 'Offer a real sign-in as an upgrade from anonymous', note: 'A one-time-code login so a session can be saved across devices, layered on top of the anonymous id.' }
           ]}
         ]
       },
@@ -293,16 +328,16 @@ const PROJECTS = [
             fix: 'Deduplicated before splitting and re-evaluated. 78.2% accuracy and 0.78 weighted F1 are the numbers after the fix.'
           },
           {
-            title: 'The spam model worked on email and failed on tickets', badge: 'Model choice',
-            problem: 'The first spam classifier passed obvious junk straight through to the router.',
-            cause: 'It was trained on corporate email. Support ticket spam is different in length, tone and structure, so this was a domain mismatch and not a model quality problem.',
-            fix: 'Replaced it with a model that holds up on real ticket text, and made ticket-shaped spam part of my manual test pass.'
+            title: 'The spam screen flagged real tickets, and my first fix hid the cause', badge: 'Data',
+            problem: 'My first spam classifier flagged about nine out of ten real support tickets as spam.',
+            cause: 'I first blamed a domain mismatch and switched to a pretrained model, which made the symptom go away. Auditing the data later, I found the real cause. During the dataset merge I had labelled all twenty-four thousand support tickets as spam, so the model had learned to call real tickets spam. The swap had covered the bug, not fixed it.',
+            fix: 'The pretrained model in the live service never saw those labels, so the running app is fine. The real fix was catching it in the audit and writing it down, instead of trusting that the earlier swap had solved anything. It is a reminder that a change which clears a symptom is not proof you found the cause.'
           },
           {
             title: 'Two ML apps on 1 GB without OOM kills', badge: 'Infrastructure',
             problem: 'Two transformer services on one free tier box need more memory than the box has.',
             cause: 'Weights baked into the images and loaded up front leave no headroom on a shared 1 GB instance.',
-            fix: 'Moved weights to S3, mounted at runtime, kept a single model instance per process, and put Nginx in front to route both apps. It has run alongside the sentiment app without OOM crashes.'
+            fix: 'Moved weights to S3, mounted at runtime, kept a single model instance per process, added a 2 GB swap file for headroom, and put Nginx in front to route both apps. It has run alongside the sentiment app without OOM crashes.'
           }
         ],
         results: [
@@ -315,6 +350,7 @@ const PROJECTS = [
         limits: [
           'This is a portfolio deployment and not a production system. No real user traffic and no monitoring.',
           'Single instance, no redundancy or autoscaling.',
+          'The containers have no memory limit set yet, so the swap file is headroom, not a real bound. Under enough load the box could still be pushed into an out-of-memory state.',
           'Rejection thresholds tuned on held-out data, not on live traffic.'
         ],
         future: [
@@ -391,7 +427,7 @@ const PROJECTS = [
             title: 'A 1 GB box already running another transformer', badge: 'Infrastructure',
             problem: 'The sentiment app had to coexist with the ticket router without either being OOM-killed.',
             cause: 'Transformer weights inside the image plus eager loading in multiple workers exceeds 1 GB quickly.',
-            fix: 'S3-mounted weights, a single model instance per process, conservative worker counts, and one Nginx reverse proxy routing both apps on one host, now terminating TLS for both. No OOM crashes since.'
+            fix: 'S3-mounted weights, a single model instance per process, conservative worker counts, a 2 GB swap file for headroom, and one Nginx reverse proxy routing both apps on one host, now terminating TLS for both. No OOM crashes since.'
           },
           {
             title: 'An accuracy number that could mislead', badge: 'Evaluation',
